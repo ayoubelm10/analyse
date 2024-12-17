@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carte et Statistiques</title>
+    <link href="default.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-omnivore@0.3.4/leaflet-omnivore.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+            background: url('maroc.webp') no-repeat center center fixed;
+            background-size: cover;
+            animation: fadeIn 1.5s ease-in-out;
+        }
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        #wrapper {
+            display: flex;
+            margin-top: 20px;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            padding: 20px;
+            gap: 20px;
+        }
+        #map {
+            width: 60%;
+            height: 500px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
+            border: 3px solid rgba(255, 255, 255, 0.6);
+            animation: fadeIn 1.5s ease-in-out;
+        }
+        #statistics {
+            width: 35%;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .card {
+            padding: 15px;
+            border-radius: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 3px solid rgba(255, 255, 255, 0.6);
+            box-shadow: 0 6px 15px rgba(0, 0, 0, 0.5);
+            color: #fff;
+        }
+        canvas {
+            max-width: 100%;
+            height: 300px;
+        }
+        h3 {
+            margin-top: 0;
+            text-align: center;
+            color: #2e7031; /* Vert inspiré du modèle */
+            font-size: 20px;
+        }
+        #commune-info table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            color: #fff;
+        }
+        #commune-info th, #commune-info td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.6);
+        }
+        #commune-info th {
+            background-color: rgba(244, 162, 97, 0.8);
+            color: #000;
+        }
+    </style>
+</head>
+<body>
+    <div id="wrapper">
+        <div id="map"></div>
+        <div id="statistics">
+            <div class="card">
+                <h3>Statistiques des bâtiments</h3>
+                <canvas id="chart"></canvas>
+            </div>
+            <div class="card" id="commune-info">
+                <h3>Informations sur la Commune</h3>
+                <table id="commune-table">
+                    <tr>
+                        <th>Nom de la Commune</th>
+                        <td id="commune-name">--</td>
+                    </tr>
+                    <tr>
+                        <th>Total des Bâtiments</th>
+                        <td id="total-buildings">--</td>
+                    </tr>
+                    <tr>
+                        <th>Bâtiments Intacts</th>
+                        <td id="high-confidence">--</td>
+                    </tr>
+                    <tr>
+                        <th>Bâtiments Endommagés</th>
+                        <td id="medium-confidence">--</td>
+                    </tr>
+                    <tr>
+                        <th>Bâtiments Détruits</th>
+                        <td id="low-confidence">--</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Initialisation de la carte
+        var map = L.map('map').setView([31.5, -7.5], 9);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        var geojsonLayer = omnivore.geojson('communes.geojson')
+            .on('ready', function () {
+                map.fitBounds(geojsonLayer.getBounds());
+            })
+            .addTo(map);
+
+        var redLayer = L.layerGroup().addTo(map);
+        var greenLayer = L.layerGroup().addTo(map);
+        var yellowLayer = L.layerGroup().addTo(map);
+
+        var selectedCommuneName = null;
+        var chart;
+
+        function initializeChart() {
+            var ctx = document.getElementById('chart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['Intacts', 'Endommagés', 'Détruits'],
+                    datasets: [{
+                        label: 'Nombre de bâtiments',
+                        data: [0, 0, 0],
+                        backgroundColor: ['#4CAF50', '#FFEB3B', '#FF5722']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            ticks: { color: '#d9d9d9', font: { size: 14, weight: 'bold' } },
+                            grid: { color: 'rgba(255, 255, 255, 0.2)' }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            ticks: { color: '#000', font: { size: 14, weight: 'bold' } },
+                            grid: { color: 'rgba(255, 255, 255, 0.2)' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#000', font: { size: 16, weight: 'bold' } } }
+                    }
+                }
+            });
+        }
+
+        function updateChart(buildingData) {
+            var intact = buildingData.filter(b => b.properties.confidence >= 0.75).length;
+            var damaged = buildingData.filter(b => b.properties.confidence > 0.7 && b.properties.confidence < 0.75).length;
+            var destroyed = buildingData.filter(b => b.properties.confidence <= 0.7).length;
+
+            chart.data.datasets[0].data = [intact, damaged, destroyed];
+            chart.update();
+
+            document.getElementById('commune-name').innerText = selectedCommuneName || '--';
+            document.getElementById('total-buildings').innerText = buildingData.length || '--';
+            document.getElementById('high-confidence').innerText = intact || '--';
+            document.getElementById('medium-confidence').innerText = damaged || '--';
+            document.getElementById('low-confidence').innerText = destroyed || '--';
+        }
+
+        initializeChart();
+
+        geojsonLayer.on('click', function (e) {
+            var commune = e.layer;
+            selectedCommuneName = commune.feature.properties.nomcommune || "Nom non disponible";
+
+            redLayer.clearLayers();
+            greenLayer.clearLayers();
+            yellowLayer.clearLayers();
+
+            fetch('apres.geojson')
+                .then(response => response.json())
+                .then(data => {
+                    var filteredBuildings = data.features.filter(feature => feature.properties.nomcommune === selectedCommuneName);
+
+                    updateChart(filteredBuildings);
+
+                    filteredBuildings.forEach(function (building) {
+                        var color = building.properties.confidence >= 0.75 ? 'green' :
+                                    (building.properties.confidence > 0.7 ? 'yellow' : 'red');
+
+                        var layerOptions = {
+                            style: { color: color, weight: 2, opacity: 1, fillOpacity: 0.5 }
+                        };
+
+                        var geoJsonLayer = L.geoJSON(building, layerOptions);
+                        if (color === 'green') geoJsonLayer.addTo(greenLayer);
+                        else if (color === 'yellow') geoJsonLayer.addTo(yellowLayer);
+                        else geoJsonLayer.addTo(redLayer);
+                    });
+                })
+                .catch(error => console.error("Erreur lors du chargement des données :", error));
+        });
+    </script>
+</body>
+</html>
